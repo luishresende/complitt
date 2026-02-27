@@ -1,0 +1,4 @@
+google-genai
+transformers
+python-dotenv
+markdownify
