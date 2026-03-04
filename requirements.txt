@@ -1,4 +1,7 @@
-google-genai
-transformers
-python-dotenv
-markdownify
+google-genai==1.65.0
+anthropic==0.84.0
+openai==2.24.0
+xai-sdk==1.7.0
+
+python-dotenv==1.2.1
+markdownify==1.2.2

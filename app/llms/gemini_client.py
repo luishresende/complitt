@@ -3,6 +3,10 @@ from google import genai
 from app.llms import LLMClient
 
 import os
+import logging
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("google_genai.models").setLevel(logging.WARNING)
 
 class GeminiClient(LLMClient):
     def __init__(self, model_name: str):
@@ -15,10 +19,14 @@ class GeminiClient(LLMClient):
 
 
     def generate_content(self, contents: str, **kwargs):
-        return self.get_client().models.generate_content(
-            model=self.model_name,
-            contents=contents,
-        )
+        try:
+            response = self.get_client().models.generate_content(
+                model=self.model_name,
+                contents=contents,
+            )
+            return response.text
+        except Exception as e:
+            logging.error(str(e))
 
     @property
     def name(self) -> str:

@@ -10,14 +10,14 @@ BOOKS_ROOT = "books"
 
 # ---------- helpers de path ----------
 
-def _book_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(BOOKS_ROOT, language, provider, book_name)
+def _book_provider_path(book_name: str, language: str, provider: str) -> str:
+    return os.path.join(BOOKS_ROOT, language, book_name, "providers", provider)
 
 def _splits_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(_book_path(book_name, language, provider), "splits")
+    return os.path.join(_book_provider_path(book_name, language, provider), "splits")
 
 def _meta_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(_book_path(book_name, language, provider), "meta.json")
+    return os.path.join(_book_provider_path(book_name, language, provider), "meta.json")
 
 
 # ---------- criação do book ----------
@@ -29,6 +29,12 @@ def create_book(book_name: str, language: str, splits: list[tuple[int, int]], pr
     """
     splits_dir = _splits_path(book_name, language, provider)
     os.makedirs(splits_dir, exist_ok=True)
+
+    meta_path = _meta_path(book_name, language, provider)
+    if os.path.exists(meta_path):
+        with open((meta_path), "r") as f:
+            data = json.load(f)
+            return data
 
     book = {
         "name": book_name,
@@ -65,7 +71,7 @@ def generate_abstract(text: str, book: dict, split: dict, llm: LLMClient) -> dic
     global BASE_ABSTRACT_PROMPT
 
     if not BASE_ABSTRACT_PROMPT:
-        with open("app/resume_prompt.txt", "r") as f:
+        with open("app/prompts/resume_prompt.txt", "r") as f:
             BASE_ABSTRACT_PROMPT = f.read()
 
     chunk = text[split["initial_pos"]:split["end_pos"]]
@@ -78,7 +84,7 @@ def generate_abstract(text: str, book: dict, split: dict, llm: LLMClient) -> dic
     filename = f"{split['index']:04d}.txt"
     filepath = os.path.join(_splits_path(book["name"], book["language"], provider), filename)
     with open(filepath, "w") as f:
-        f.write(response.text)
+        f.write(response)
 
     split["content_file"] = filename
     _save_meta(book["name"], book["language"], provider, book)
@@ -91,13 +97,13 @@ def generate_abstract(text: str, book: dict, split: dict, llm: LLMClient) -> dic
 def summarize_abstracts(abstracts: list[str], llm: LLMClient) -> str:
     global BASE_SUMMARIZE_PROMPT
     if not BASE_SUMMARIZE_PROMPT:
-        with open("app/summarize_prompt.txt", "r") as f:
+        with open("app/prompts/summarize_prompt.txt", "r") as f:
             BASE_SUMMARIZE_PROMPT = f.read()
 
     abstracts_text = "\n\n".join(abstracts)
     prompt = BASE_SUMMARIZE_PROMPT.replace("{ABSTRACT_CONTENTS}", abstracts_text)
     response = llm.generate_content(prompt)
-    return response.text
+    return response
 
 
 # ---------- leitura de abstracts ----------

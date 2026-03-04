@@ -6,6 +6,8 @@ import torch
 
 class HuggingFaceLLMClient(LLMClient):
     def __init__(self, model_name: str):
+        raise NotImplementedError("This model is not implemented yet")
+
         self.model_name = model_name
 
         # Configuração 4-bit
@@ -21,7 +23,7 @@ class HuggingFaceLLMClient(LLMClient):
 
         # Configuração de memória/offload
         max_memory = {
-            "cuda:0": "32000MB",
+            0: "32000MB",  # GPU 0
             "cpu": "64000MB"
         }
 
