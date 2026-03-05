@@ -1,6 +1,6 @@
 # CompLiTT — A Summary Approach to Historical Books
 
-CompLiTT is a command-line pipeline designed to process historical books in PDF format and generate structured summaries using modern OCR and Large Language Models (LLMs).
+CompLiTT is a command-line pipeline designed to process historical books in PDF format and generate structured summaries using modern OCR and Large Language Models (LLMs). You can check our results [here](https://drive.google.com/drive/folders/1mMKY8ry4GjUa8ofzVkv5VJKde4sF3D_A?usp=drive_link).
 
 The workflow is divided into **three sequential stages**:
 
