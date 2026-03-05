@@ -5,3 +5,5 @@ xai-sdk==1.7.0
 
 python-dotenv==1.2.1
 markdownify==1.2.2
+
+paddleocr[all]

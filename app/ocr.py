@@ -15,7 +15,6 @@ def run_paddle(books_path, relative_output_dir="paddle_output"):
         relative_output_dir (str, optional): Relative path to save OCR results. Defaults to "paddle_output".
     """
     from paddleocr import PaddleOCRVL
-    import torch
     # Validate directory structure
     valid_dir, issues = validate_input_dir_structure(books_path)
     if not valid_dir:
@@ -25,12 +24,8 @@ def run_paddle(books_path, relative_output_dir="paddle_output"):
         print(f"Please fix it running the command:\nrun.py prepare_dir {books_path}")
         return
 
-    # Automatic device selection
-    device = "gpu:0" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-
     # Initialize OCR pipeline
-    pipeline = PaddleOCRVL(device=device)
+    pipeline = PaddleOCRVL()
 
     # Collect all PDF paths
     pdf_list = []
