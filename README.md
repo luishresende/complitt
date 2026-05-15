@@ -182,7 +182,7 @@ python run.py resume ./books google gemini-2.5-flash 32000
 Each downstream command loads the abstracts produced by `resume` and generates its output. They are independent and can be run in any order once `resume` has completed.
 
 ```bash
-# Final book summary (summary.txt + summary_without_intro.txt)
+# Final book summary (summary.txt)
 python run.py abstract <input_dir> <api> <model> [--abstract_version N] [--max_retries -1]
 
 # Keyword / theme extraction (keywords.txt)

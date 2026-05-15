@@ -172,6 +172,9 @@ def get_md_content(book_path, input_relative_path="paddle_output", post_process_
         md_content = merge_md_files(md_files)
         md_content = fix_content_pipeline(md_content, replace_divs, adjust_text, replace_tables)
 
+    else:
+        raise ValueError(f"OCR output does not exist for this book: '{input_path}'")
+
     return md_content
 
 

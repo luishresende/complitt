@@ -28,6 +28,13 @@ def mock_keywords_prompt():
 
 
 @pytest.fixture
+def mock_categories_prompt():
+    prompt = MagicMock()
+    prompt.format.side_effect = lambda **kw: f"categories:{kw['ABSTRACT_CONTENTS']}"
+    return prompt
+
+
+@pytest.fixture
 def mock_llm():
     llm = MagicMock()
     llm.generate_with_retry.return_value = "llm response"
@@ -35,8 +42,8 @@ def mock_llm():
 
 
 @pytest.fixture
-def analyzer(mock_book, mock_summarize_prompt, mock_keywords_prompt, mock_llm):
-    return BookAnalyzer(mock_book, mock_llm, mock_summarize_prompt, mock_keywords_prompt)
+def analyzer(mock_book, mock_summarize_prompt, mock_keywords_prompt, mock_categories_prompt, mock_llm):
+    return BookAnalyzer(mock_book, mock_llm, mock_summarize_prompt, mock_keywords_prompt, mock_categories_prompt)
 
 
 class TestSummarize:
@@ -63,6 +70,19 @@ class TestKeywords:
     def test_returns_llm_output(self, analyzer, mock_llm):
         mock_llm.generate_with_retry.return_value = "keyword1\nkeyword2"
         assert analyzer.keywords(["x"]) == "keyword1\nkeyword2"
+
+
+class TestCategories:
+    def test_joins_abstracts_and_calls_llm(self, analyzer, mock_categories_prompt, mock_llm):
+        abstracts = ["part A", "part B"]
+        result = analyzer.categories(abstracts)
+        mock_categories_prompt.format.assert_called_once_with(ABSTRACT_CONTENTS="part A\n\npart B", LANGUAGE="en")
+        mock_llm.generate_with_retry.assert_called_once()
+        assert result == "llm response"
+
+    def test_returns_llm_output(self, analyzer, mock_llm):
+        mock_llm.generate_with_retry.return_value = "History\nPhilosophy"
+        assert analyzer.categories(["x"]) == "History\nPhilosophy"
 
 
 class TestWriteAbstracts:
@@ -160,6 +180,28 @@ class TestWriteKeywords:
         assert (tmp_path / "keywords.txt").read_text() == "kw1\nkw2"
 
 
+class TestWriteCategories:
+    def test_writes_categories_file(self, tmp_path, analyzer, mock_llm):
+        analyzer.book.provider_path = str(tmp_path)
+        mock_llm.generate_with_retry.return_value = "History\nPhilosophy"
+        analyzer.write_categories(["abstract one"])
+        assert (tmp_path / "categories.txt").read_text() == "History\nPhilosophy"
+
+    def test_skips_if_already_exists_and_non_empty(self, tmp_path, analyzer, mock_llm):
+        analyzer.book.provider_path = str(tmp_path)
+        (tmp_path / "categories.txt").write_text("old categories")
+        analyzer.write_categories(["new content"])
+        assert (tmp_path / "categories.txt").read_text() == "old categories"
+        mock_llm.generate_with_retry.assert_not_called()
+
+    def test_overwrites_empty_categories_file(self, tmp_path, analyzer, mock_llm):
+        analyzer.book.provider_path = str(tmp_path)
+        (tmp_path / "categories.txt").write_text("")
+        mock_llm.generate_with_retry.return_value = "History\nPhilosophy"
+        analyzer.write_categories(["abstract"])
+        assert (tmp_path / "categories.txt").read_text() == "History\nPhilosophy"
+
+
 class TestAbstractsExist:
     def test_true_when_file_present_and_non_empty(self, tmp_path, analyzer):
         analyzer.book.provider_path = str(tmp_path)
@@ -213,3 +255,19 @@ class TestKeywordsExist:
         analyzer.book.provider_path = str(tmp_path)
         (tmp_path / "keywords.txt").write_text("")
         assert analyzer.keywords_exist() is False
+
+
+class TestCategoriesExist:
+    def test_true_when_file_present_and_non_empty(self, tmp_path, analyzer):
+        analyzer.book.provider_path = str(tmp_path)
+        (tmp_path / "categories.txt").write_text("History")
+        assert analyzer.categories_exist() is True
+
+    def test_false_when_file_missing(self, tmp_path, analyzer):
+        analyzer.book.provider_path = str(tmp_path)
+        assert analyzer.categories_exist() is False
+
+    def test_false_when_file_is_empty(self, tmp_path, analyzer):
+        analyzer.book.provider_path = str(tmp_path)
+        (tmp_path / "categories.txt").write_text("")
+        assert analyzer.categories_exist() is False

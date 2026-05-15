@@ -114,30 +114,34 @@ class TestFixContentPipeline:
 
 
 class TestGetMdContent:
-    def test_nonexistent_path_raises(self):
+    def test_returns_existing_post_processed_file(self, tmp_path):
+        (tmp_path / "book_content.md").write_text("already processed")
+        assert get_md_content(str(tmp_path)) == "already processed"
+
+    def test_nonexistent_input_raises(self, tmp_path):
+        # neither book_content.md nor a paddle_output directory exists
         with pytest.raises(ValueError, match="does not exist"):
-            get_md_content("/nonexistent/path/xyz")
+            get_md_content(str(tmp_path))
 
     def test_directory_with_no_md_files_raises(self, tmp_path):
+        (tmp_path / "paddle_output").mkdir()
         with pytest.raises(ValueError):
             get_md_content(str(tmp_path))
 
-    def test_single_md_file_returns_content(self, tmp_path):
-        md_file = tmp_path / "page_001.md"
-        md_file.write_text("# Hello World")
-        result = get_md_content(str(md_file))
-        assert "Hello World" in result
-
-    def test_directory_with_md_files_merges_content(self, tmp_path):
-        (tmp_path / "page_001.md").write_text("First page")
-        (tmp_path / "page_002.md").write_text("Second page")
+    def test_merges_md_files_from_paddle_output(self, tmp_path):
+        paddle = tmp_path / "paddle_output"
+        paddle.mkdir()
+        (paddle / "page_001.md").write_text("First page")
+        (paddle / "page_002.md").write_text("Second page")
         result = get_md_content(str(tmp_path))
         assert "First page" in result
         assert "Second page" in result
 
     def test_merged_files_excluded(self, tmp_path):
-        (tmp_path / "page_001.md").write_text("Real content")
-        (tmp_path / "merged_output.md").write_text("Should be ignored")
+        paddle = tmp_path / "paddle_output"
+        paddle.mkdir()
+        (paddle / "page_001.md").write_text("Real content")
+        (paddle / "merged_001.md").write_text("Should be ignored")
         result = get_md_content(str(tmp_path))
         assert "Real content" in result
         assert "Should be ignored" not in result
