@@ -151,10 +151,14 @@ def fix_content_pipeline(md_content, *preprocess):
     return md_content
 
 
-def get_md_content(input_path):
-    if not os.path.exists(input_path):
-        raise ValueError("Input does not exist")
+def get_md_content(book_path, input_relative_path="paddle_output", post_process_path="book_content.md"):
+    post_process_path = os.path.join(book_path, post_process_path)
 
+    if os.path.exists(post_process_path):
+        with open(post_process_path, "r") as f:
+            return f.read()
+
+    input_path = os.path.join(book_path, input_relative_path)
     if os.path.isfile(input_path) and os.path.splitext(input_path)[1] == ".md":
         with open(input_path, "r") as f:
             md_content = f.read()

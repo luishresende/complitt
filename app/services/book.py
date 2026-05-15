@@ -1,120 +1,122 @@
 import os
 import json
-
-from app.llms import LLMClient
-
-BASE_ABSTRACT_PROMPT = None
-BASE_SUMMARIZE_PROMPT = None
-BOOKS_ROOT = "books"
+import threading
 
 
-# ---------- helpers de path ----------
-
-def _book_provider_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(BOOKS_ROOT, language, book_name, "providers", provider)
-
-def _splits_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(_book_provider_path(book_name, language, provider), "splits")
-
-def _meta_path(book_name: str, language: str, provider: str) -> str:
-    return os.path.join(_book_provider_path(book_name, language, provider), "meta.json")
+_write_lock = threading.Lock()
 
 
-# ---------- criação do book ----------
+class Book:
+    def __init__(self, name: str, language: str, provider: str, batches: list, books_root: str = "books"):
+        self.name = name
+        self.language = language
+        self.provider = provider
+        self.batches = batches
+        self.books_root = books_root
 
-def create_book(book_name: str, language: str, splits: list[tuple[int, int]], provider: str) -> dict:
-    """
-    Cria a estrutura de pastas e persiste os metadados do book (splits).
-    Retorna o objeto book como dicionário.
-    """
-    splits_dir = _splits_path(book_name, language, provider)
-    os.makedirs(splits_dir, exist_ok=True)
+    # --- path helpers ---
 
-    meta_path = _meta_path(book_name, language, provider)
-    if os.path.exists(meta_path):
-        with open((meta_path), "r") as f:
+    @property
+    def book_path(self) -> str:
+        return os.path.join(self.books_root, self.language, self.name)
+
+    @property
+    def provider_path(self) -> str:
+        return os.path.join(self.books_root, self.language, self.name, "providers", self.provider)
+
+    @property
+    def meta_path(self) -> str:
+        return os.path.join(self.provider_path, "meta.json")
+
+    def _batch_path(self, batch_num: int) -> str:
+        batch_root = os.path.join(self.provider_path, "batches")
+        if batch_num == -1:
+            entries = os.listdir(batch_root)
+            return os.path.join(batch_root, str(max(entries, key=lambda x: int(x))))
+        return os.path.join(batch_root, str(batch_num))
+
+    def _splits_path(self, batch_num: int) -> str:
+        return os.path.join(self._batch_path(batch_num), "splits")
+
+    # --- persistence ---
+
+    def save(self):
+        with _write_lock:
+            with open(self.meta_path, "w") as f:
+                json.dump(self._to_dict(), f, indent=2)
+
+    def reload(self):
+        with open(self.meta_path, "r") as f:
             data = json.load(f)
-            return data
+        self.batches = data["batches"]
 
-    book = {
-        "name": book_name,
-        "language": language,
-        "provider": provider,
-        "splits": [
+    def _to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "language": self.language,
+            "provider": self.provider,
+            "batches": self.batches,
+        }
+
+    # --- factory methods ---
+
+    @classmethod
+    def create(cls, name: str, language: str, splits: list[tuple[int, int]], provider: str, books_root: str = "books") -> "Book":
+        book = cls(name, language, provider, batches=[], books_root=books_root)
+
+        os.makedirs(book._splits_path(1), exist_ok=True)
+
+        if os.path.exists(book.meta_path):
+            return cls.load(name, language, provider, books_root)
+
+        book.batches = [[
             {"index": i, "initial_pos": s[0], "end_pos": s[1], "content_file": None}
             for i, s in enumerate(splits)
-        ]
-    }
+        ]]
+        book.save()
+        return book
 
-    _save_meta(book_name, language, provider, book)
-    return book
+    @classmethod
+    def load(cls, name: str, language: str, provider: str, books_root: str = "books") -> "Book":
+        meta = os.path.join(books_root, language, name, "providers", provider, "meta.json")
+        if not os.path.exists(meta):
+            raise FileNotFoundError(f"Book not found: {meta}")
+        with open(meta, "r") as f:
+            data = json.load(f)
+        return cls(data["name"], data["language"], data["provider"], data["batches"], books_root)
 
+    # --- batch management ---
 
-def _save_meta(book_name: str, language: str, provider: str, book: dict):
-    with open(_meta_path(book_name, language, provider), "w") as f:
-        json.dump(book, f, indent=2)
+    @property
+    def current_batch(self) -> list:
+        return self.batches[-1]
 
+    def add_batch(self, splits: list[tuple[int, int]]):
+        batch_num = len(self.batches) + 1
+        os.makedirs(self._splits_path(batch_num), exist_ok=True)
+        self.batches.append([
+            {"index": i, "initial_pos": s[0], "end_pos": s[1], "content_file": None}
+            for i, s in enumerate(splits)
+        ])
+        self.save()
 
-# ---------- leitura ----------
+    # --- split persistence ---
 
-def get_book(book_name: str, language: str, provider: str) -> dict:
-    meta = _meta_path(book_name, language, provider)
-    if not os.path.exists(meta):
-        raise FileNotFoundError(f"Book not found: {meta}")
-    with open(meta, "r") as f:
-        return json.load(f)
+    def save_split_abstract(self, split: dict, content: str):
+        if not content or not content.strip():
+            raise ValueError(f"Cannot save empty content for split {split['index']}")
+        batch_num = len(self.batches)
+        filename = f"{split['index']:04d}.txt"
+        with open(os.path.join(self._splits_path(batch_num), filename), "w") as f:
+            f.write(content)
+        split["content_file"] = filename
+        self.save()
 
-
-# ---------- geração de abstracts ----------
-
-def generate_abstract(text: str, book: dict, split: dict, llm: LLMClient) -> dict:
-    global BASE_ABSTRACT_PROMPT
-
-    if not BASE_ABSTRACT_PROMPT:
-        with open("app/prompts/resume_prompt.txt", "r") as f:
-            BASE_ABSTRACT_PROMPT = f.read()
-
-    chunk = text[split["initial_pos"]:split["end_pos"]]
-    target_size = int(len(chunk) * 0.10)
-    prompt = BASE_ABSTRACT_PROMPT.replace("{TARGET_SIZE}", str(target_size)).replace("{TEXT}", chunk)
-
-    response = llm.generate_content(prompt)
-
-    provider = book["provider"]
-    filename = f"{split['index']:04d}.txt"
-    filepath = os.path.join(_splits_path(book["name"], book["language"], provider), filename)
-    with open(filepath, "w") as f:
-        f.write(response)
-
-    split["content_file"] = filename
-    _save_meta(book["name"], book["language"], provider, book)
-
-    return split
-
-
-# ---------- summarização ----------
-
-def summarize_abstracts(abstracts: list[str], llm: LLMClient) -> str:
-    global BASE_SUMMARIZE_PROMPT
-    if not BASE_SUMMARIZE_PROMPT:
-        with open("app/prompts/summarize_prompt.txt", "r") as f:
-            BASE_SUMMARIZE_PROMPT = f.read()
-
-    abstracts_text = "\n\n".join(abstracts)
-    prompt = BASE_SUMMARIZE_PROMPT.replace("{ABSTRACT_CONTENTS}", abstracts_text)
-    response = llm.generate_content(prompt)
-    return response
-
-
-# ---------- leitura de abstracts ----------
-
-def load_abstracts(book: dict) -> list[str]:
-    """Lê todos os abstracts já gerados do disco, em ordem."""
-    abstracts = []
-    provider = book["provider"]
-    splits_dir = _splits_path(book["name"], book["language"], provider)
-    for split in sorted(book["splits"], key=lambda s: s["index"]):
-        if split["content_file"]:
-            with open(os.path.join(splits_dir, split["content_file"]), "r") as f:
-                abstracts.append(f.read())
-    return abstracts
+    def load_abstracts(self) -> list[str]:
+        abstracts = []
+        splits_dir = self._splits_path(-1)
+        for split in sorted(self.current_batch, key=lambda s: s["index"]):
+            if split["content_file"]:
+                with open(os.path.join(splits_dir, split["content_file"]), "r") as f:
+                    abstracts.append(f.read())
+        return abstracts

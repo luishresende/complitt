@@ -1,49 +1,53 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+import torch
+import logging
+from transformers import AutoModelForCausalLM
 
 from app.llms import LLMClient
 
-import torch
+logger = logging.getLogger(__name__)
 
-class HuggingFaceLLMClient(LLMClient):
+
+class HuggingFaceClient(LLMClient):
+    """Base class for local HuggingFace models. Subclasses define tokenizer loading and generation."""
+
     def __init__(self, model_name: str):
-        raise NotImplementedError("This model is not implemented yet")
-
         self.model_name = model_name
+        logger.info(f"Carregando {self.model_name}")
+        self.tokenizer = self._load_tokenizer()
+        self._client = self._load_model()
+        self._client.eval()
 
-        # Configuração 4-bit
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True
-        )
+    def _load_tokenizer(self):
+        raise NotImplementedError
 
-        # Tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+    def _load_model(self):
+        raise NotImplementedError
 
-        # Configuração de memória/offload
-        max_memory = {
-            0: "32000MB",  # GPU 0
-            "cpu": "64000MB"
-        }
-
-        # Modelo
-        self._client = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            quantization_config=bnb_config,
-            device_map="auto",
-            max_memory=max_memory,
-            offload_folder="./offload_tmp"
-        )
+    def _default_generate_kwargs(self) -> dict:
+        return {"max_new_tokens": 4096, "temperature": 0.7, "do_sample": True}
 
     def get_client(self):
         return self._client
 
-    def generate_content(self, contents: str, **kwargs):
-        inputs = self.tokenizer(contents, return_tensors="pt").to(self._client.device)
+    def generate_content(self, contents: str, **kwargs) -> str:
+        tokenized = self.tokenizer.apply_chat_template(
+            [{"role": "user", "content": contents}],
+            return_tensors="pt",
+            return_dict=True,
+            add_generation_prompt=True
+        )
+        tokenized = {k: v.to(self._client.device) for k, v in tokenized.items()}
+
+        gen_kwargs = {**self._default_generate_kwargs(), **kwargs}
+
         with torch.no_grad():
-            outputs = self._client.generate(**inputs, **kwargs)
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            output = self._client.generate(
+                **tokenized,
+                **gen_kwargs
+            )[0]
+
+        new_tokens = self.tokenizer.decode(output[len(tokenized["input_ids"][0]):], skip_special_tokens=True)
+        return new_tokens
 
     @property
     def name(self) -> str:

@@ -1,17 +1,20 @@
 from app.postprocess import get_md_content
-from app.services.book import (
-    create_book, get_book,
-    generate_abstract, summarize_abstracts, load_abstracts, _book_provider_path
-)
+from app.prompts import Prompt
+from app.services.book import Book
+from app.services.summarizer import BookResumer
+from app.services.analyzer import BookAnalyzer
 from app.llms import LLMClient
 from app.llms.gemini_client import GeminiClient
 from app.llms.openai_client import OpenAIClient
-from app.llms.claude_provider import ClaudeClient
+from app.llms.claude_client import ClaudeClient
 from app.llms.xai_client import XAIClient
+from app.llms.mistral_client import MistralClient
+from app.llms.deepseek_client import DeepSeekClient
+from app.llms.ministral_client import MinistralClient
+from app.llms.llama_client import LlamaClient
+from app.llms.qwen_client import QwenClient
 
 from dotenv import load_dotenv
-from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import os
 import logging
@@ -25,122 +28,193 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-CHAR_PER_PAGE = 2000
-MINIMUM_CHARS_PER_PAGE = CHAR_PER_PAGE * 2
+def _load_prompts(resume_version: int = 1, abstract_version: int = 1, keywords_version: int = 1, categories_version: int = 1):
+    return (
+        Prompt.load("resume", version=resume_version, keys=["TARGET_SIZE", "TEXT", "LANGUAGE"]),
+        Prompt.load("abstract", version=abstract_version, keys=["ABSTRACT_CONTENTS", "LANGUAGE"]),
+        Prompt.load("keywords", version=keywords_version, keys=["ABSTRACT_CONTENTS", "LANGUAGE"]),
+        Prompt.load("categories", version=categories_version, keys=["ABSTRACT_CONTENTS", "LANGUAGE"]),
+    )
+
+_LLM_PROVIDERS = {
+    "openai": OpenAIClient,
+    "anthropic": ClaudeClient,
+    "google": GeminiClient,
+    "xai": XAIClient,
+    "mistral": MistralClient,
+    "deepseek": DeepSeekClient,
+    "ministral": MinistralClient,
+    "llama": LlamaClient,
+    "qwen": QwenClient,
+}
 
 
-def build_splits(content: str) -> list[tuple[int, int]]:
-    initial_index = 0
-    splits = []
-    while initial_index < len(content):
-        search_start = initial_index + MINIMUM_CHARS_PER_PAGE
-        if search_start >= len(content):
-            splits.append((initial_index, len(content)))
-            break
-        newline_pos = content.find("\n", search_start)
-        if newline_pos == -1:
-            splits.append((initial_index, len(content)))
-            break
-        end_index = newline_pos + 1
-        splits.append((initial_index, end_index))
-        initial_index = end_index
-    return splits
+def _build_llm(api: str, model: str) -> LLMClient:
+    client_cls = _LLM_PROVIDERS.get(api)
+    if client_cls is None:
+        raise ValueError(f"API '{api}' not supported. Choose from: {list(_LLM_PROVIDERS)}")
+    return client_cls(model)
 
 
-def _process_split(split, content, book, llm, prefix):
-    if split["content_file"]:
-        return
-    generate_abstract(content, book, split, llm)
-
-
-def process_book(books_root: str, book_name: str, language: str, llm: LLMClient, num_threads: int = 1, paddle_relative_output_dir: str = "paddle_output"):
-    prefix = f"{language}/{book_name}"
-    book_dir = os.path.join(books_root, language, book_name)
-    output_book_dir = _book_provider_path(book_name, language, llm.name)
-    output_abstracts_path = os.path.join(output_book_dir, "abstract_contents.txt")
-    output_summary_path = os.path.join(output_book_dir, "summary.txt")
-    output_summary_without_intro_path = os.path.join(output_book_dir, "summary_without_intro.txt")
-
-    if all([
-        os.path.exists(output_abstracts_path),
-        os.path.exists(output_summary_path),
-        os.path.exists(output_summary_without_intro_path),
-    ]):
-        logger.info("[SKIP] %s já existe para o provider '%s'.", prefix, llm.name)
-        return
-
-    logger.info("[PROCESS] %s", prefix)
-
-    paddle_output_path = os.path.join(book_dir, paddle_relative_output_dir)
-    if not os.path.exists(paddle_output_path):
-        logger.warning("[SKIP] No paddle output found for %s", prefix)
-        return
-
-    content = get_md_content(paddle_output_path)
-    splits = build_splits(content)
-
-    book = create_book(book_name, language, splits, llm.name)
-
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = {
-            executor.submit(_process_split, split, content, book, llm, prefix): split['index']
-            for split in book["splits"]
-        }
-        with tqdm(total=len(futures), desc=f"{prefix} splits") as pbar:
-            for future in as_completed(futures):
-                if exc := future.exception():
-                    logger.error("[%s] Error on split %s: %s", prefix, futures[future], exc)
-                pbar.update(1)
-
-    book = get_book(book_name, language, llm.name)
-    abstracts = load_abstracts(book)
-
-    os.makedirs(output_book_dir, exist_ok=True)
-    if not os.path.exists(output_abstracts_path):
-        with open(output_abstracts_path, "w") as f:
-            f.write("\n\n".join(abstracts))
-    else:
-        logger.info("[SKIP] Abstracts already generated for %s", prefix)
-
-    if not os.path.exists(output_summary_path):
-        with open(output_summary_path, "w") as f:
-            f.write(summarize_abstracts(abstracts, llm))
-    else:
-        logger.info("[SKIP] Summary already generated for %s", prefix)
-
-    if not os.path.exists(output_summary_without_intro_path):
-        with open(output_summary_without_intro_path, "w") as f:
-            f.write(summarize_abstracts(abstracts[1:], llm))
-    else:
-        logger.info("[SKIP] Summary without intro already generated for %s", prefix)
-
-    logger.info("[DONE] %s", prefix)
-
-
-def summarize(books_root, api, model, num_threads=1, paddle_output_relative_dir="paddle_output"):
-    if api == "openai":
-        llm_provider = OpenAIClient(model)
-    elif api == "anthropic":
-        llm_provider = ClaudeClient(model)
-    elif api == "gemini":
-        llm_provider = GeminiClient(model)
-    elif api == "xai":
-        llm_provider = XAIClient(model)
-    else:
-        raise ValueError(f"API {api} not supported, custom implementation required.")
-
+def _iter_books(books_root: str):
+    """Yields (language, book_name) for all books in the root directory."""
     for language in os.listdir(books_root):
         language_path = os.path.join(books_root, language)
         if not os.path.isdir(language_path):
             continue
-
         for book_name in os.listdir(language_path):
-            book_input_path = os.path.join(language_path, book_name)
-            if not os.path.isdir(book_input_path):
-                continue
+            if os.path.isdir(os.path.join(language_path, book_name)):
+                yield language, book_name
 
-            try:
-                process_book(books_root, book_name, language, llm_provider, num_threads=num_threads, paddle_relative_output_dir=paddle_output_relative_dir)
-            except Exception as e:
-                print(f"[ERROR] {language}/{book_name}: {e}")
 
+def process_book(books_root: str, book_name: str, language: str, llm: LLMClient, context_window_size: int, resume_prompt: Prompt, summarize_prompt: Prompt, keywords_prompt: Prompt, categories_prompt: Prompt, num_threads: int = 1, paddle_relative_output_dir: str = "paddle_output"):
+    """Runs the hierarchical summarization pipeline and saves the intermediate abstracts."""
+    prefix = f"{language}/{book_name}"
+    book_path = os.path.join(books_root, language, book_name)
+
+    try:
+        content = get_md_content(book_path, paddle_relative_output_dir)
+    except (ValueError, FileNotFoundError):
+        logger.warning("[SKIP] No paddle output found for %s", prefix)
+        return
+
+    try:
+        book = Book.load(book_name, language, llm.name, books_root)
+    except FileNotFoundError:
+        max_chunk_size = context_window_size - resume_prompt.overhead
+        book = Book.create(book_name, language, BookResumer.build_splits(content, max_chunk_size), llm.name, books_root)
+
+    analyzer = BookAnalyzer(book, llm, summarize_prompt, keywords_prompt, categories_prompt)
+
+    if analyzer.abstracts_exist():
+        logger.info("[SKIP] %s already resumed for provider '%s'.", prefix, llm.name)
+        return
+
+    resumer = BookResumer(book, llm, context_window_size, resume_prompt, num_threads)
+
+    logger.info("[RESUME] %s", prefix)
+    abstracts = resumer.run(content)
+    analyzer.write_abstracts(abstracts)
+    logger.info("[DONE] %s", prefix)
+
+
+def process_book_keywords(book_name: str, language: str, llm: LLMClient, abstract_prompt: Prompt, keywords_prompt: Prompt, categories_prompt: Prompt, books_root: str = "books"):
+    """Loads existing abstracts and generates keywords.txt."""
+    prefix = f"{language}/{book_name}"
+
+    try:
+        book = Book.load(book_name, language, llm.name, books_root)
+    except FileNotFoundError:
+        logger.warning("[SKIP] %s — no resume found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    analyzer = BookAnalyzer(book, llm, abstract_prompt, keywords_prompt, categories_prompt)
+
+    if not analyzer.abstracts_exist():
+        logger.warning("[SKIP] %s — abstracts not found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    if analyzer.keywords_exist():
+        logger.info("[SKIP] %s — keywords already exist for provider '%s'.", prefix, llm.name)
+        return
+
+    abstracts = book.load_abstracts()
+    logger.info("[KEYWORDS] %s", prefix)
+    analyzer.write_keywords(abstracts)
+    logger.info("[DONE] %s", prefix)
+
+
+def process_book_abstract(book_name: str, language: str, llm: LLMClient, abstract_prompt: Prompt, keywords_prompt: Prompt, categories_prompt: Prompt, books_root: str = "books"):
+    """Loads existing abstracts and generates summary.txt and summary_without_intro.txt."""
+    prefix = f"{language}/{book_name}"
+
+    try:
+        book = Book.load(book_name, language, llm.name, books_root)
+    except FileNotFoundError:
+        logger.warning("[SKIP] %s — no resume found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    analyzer = BookAnalyzer(book, llm, abstract_prompt, keywords_prompt, categories_prompt)
+
+    if not analyzer.abstracts_exist():
+        logger.warning("[SKIP] %s — abstracts not found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    if analyzer.summary_exists():
+        logger.info("[SKIP] %s — abstract already exists for provider '%s'.", prefix, llm.name)
+        return
+
+    abstracts = book.load_abstracts()
+    logger.info("[ABSTRACT] %s", prefix)
+    analyzer.write_summary(abstracts)
+    logger.info("[DONE] %s", prefix)
+
+
+def process_book_categories(book_name: str, language: str, llm: LLMClient, abstract_prompt: Prompt, keywords_prompt: Prompt, categories_prompt: Prompt, books_root: str = "books"):
+    """Loads existing abstracts and generates categories.txt."""
+    prefix = f"{language}/{book_name}"
+
+    try:
+        book = Book.load(book_name, language, llm.name, books_root)
+    except FileNotFoundError:
+        logger.warning("[SKIP] %s — no resume found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    analyzer = BookAnalyzer(book, llm, abstract_prompt, keywords_prompt, categories_prompt)
+
+    if not analyzer.abstracts_exist():
+        logger.warning("[SKIP] %s — abstracts not found for provider '%s'. Run 'resume' first.", prefix, llm.name)
+        return
+
+    if analyzer.categories_exist():
+        logger.info("[SKIP] %s — categories already exist for provider '%s'.", prefix, llm.name)
+        return
+
+    abstracts = book.load_abstracts()
+    logger.info("[CATEGORIES] %s", prefix)
+    analyzer.write_categories(abstracts)
+    logger.info("[DONE] %s", prefix)
+
+
+def resume(books_root, api, model, context_window_size, resume_version=1, num_threads=1, paddle_output_relative_dir="paddle_output", max_retries=-1):
+    llm = _build_llm(api, model)
+    llm.default_max_retries = max_retries
+    resume_prompt, abstract_prompt, keywords_prompt, categories_prompt = _load_prompts(resume_version=resume_version)
+    for language, book_name in _iter_books(books_root):
+        try:
+            process_book(books_root, book_name, language, llm, context_window_size, resume_prompt, abstract_prompt, keywords_prompt, categories_prompt, num_threads=num_threads, paddle_relative_output_dir=paddle_output_relative_dir)
+        except Exception as e:
+            logger.error("%s/%s: %s", language, book_name, e)
+
+
+def keywords(books_root, api, model, keywords_version=1, max_retries=-1):
+    llm = _build_llm(api, model)
+    llm.default_max_retries = max_retries
+    _, abstract_prompt, keywords_prompt, categories_prompt = _load_prompts(keywords_version=keywords_version)
+    for language, book_name in _iter_books(books_root):
+        try:
+            process_book_keywords(book_name, language, llm, abstract_prompt, keywords_prompt, categories_prompt, books_root)
+        except Exception as e:
+            logger.error("%s/%s: %s", language, book_name, e)
+
+
+def abstract(books_root, api, model, abstract_version=1, max_retries=-1):
+    llm = _build_llm(api, model)
+    llm.default_max_retries = max_retries
+    _, abstract_prompt, keywords_prompt, categories_prompt = _load_prompts(abstract_version=abstract_version)
+    for language, book_name in _iter_books(books_root):
+        try:
+            process_book_abstract(book_name, language, llm, abstract_prompt, keywords_prompt, categories_prompt, books_root)
+        except Exception as e:
+            logger.error("%s/%s: %s", language, book_name, e)
+
+
+def categories(books_root, api, model, categories_version=1, max_retries=-1):
+    llm = _build_llm(api, model)
+    llm.default_max_retries = max_retries
+    _, abstract_prompt, keywords_prompt, categories_prompt = _load_prompts(categories_version=categories_version)
+    for language, book_name in _iter_books(books_root):
+        try:
+            process_book_categories(book_name, language, llm, abstract_prompt, keywords_prompt, categories_prompt, books_root)
+        except Exception as e:
+            logger.error("%s/%s: %s", language, book_name, e)

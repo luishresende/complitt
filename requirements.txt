@@ -7,3 +7,13 @@ python-dotenv==1.2.1
 markdownify==1.2.2
 
 paddleocr[all]
+
+mistral-common==1.10.0
+accelerate==1.13.0
+bitsandbytes==0.49.2
+hf-xet==1.4.2
+huggingface-hub==1.8.0
+safetensors==0.7.0
+transformers==5.4.0
+
+kernels==0.12.3

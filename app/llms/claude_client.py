@@ -15,16 +15,13 @@ class ClaudeClient(LLMClient):
     def get_client(self):
         return self._client
 
-    def generate_content(self, contents: str, max_tokens: int = 4096):
-        try:
-            response = self.get_client().messages.create(
-                model=self.model_name,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": contents}],
-            )
-            return response.content[0].text
-        except Exception as e:
-            logging.error(str(e))
+    def generate_content(self, contents: str, max_tokens: int = 4096) -> str:
+        response = self.get_client().messages.create(
+            model=self.model_name,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": contents}],
+        )
+        return response.content[0].text
 
     @property
     def name(self) -> str:
