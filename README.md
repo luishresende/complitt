@@ -8,16 +8,14 @@ This repository contains the **extended, multi-task version** of CompLiTT. Compa
 * **Multiple downstream tasks** — from the same compressed content, the pipeline produces a **summary**, **keywords**, and **thematic categories**.
 * **Open-source + proprietary models** — nine providers are supported, covering both API-based proprietary models and locally executed open-source models.
 
-You can check our results [here](https://drive.google.com/drive/folders/1mMKY8ry4GjUa8ofzVkv5VJKde4sF3D_A?usp=drive_link).
-
 ---
 
 ## 📚 Publications & Versions
 
-| Version | Paper | Code |
-|---------|-------|------|
-| **v2 — Multi-task adaptive pipeline** *(this branch)* | Paper under review — details will be added once published | current branch |
-| **v1 — Original CompLiTT** | *"CompLiTT: An end-to-end pipeline for processing and summarizing historical books"*, ICOLAA 2026 — accepted, in press | [`v1` branch](https://github.com/luishresende/complitt/tree/v1) |
+| Version | Paper | Code | Results |
+|---------|-------|------|---------|
+| **v2 — Multi-task adaptive pipeline** *(this branch)* | Paper under review — details will be added once published | current branch | [Drive folder](https://drive.google.com/drive/folders/1kXxPYuZGkzp49NQSG3KQalWa4nnWYV4b?usp=drive_link) |
+| **v1 — Original CompLiTT** | *"CompLiTT: An end-to-end pipeline for processing and summarizing historical books"*, ICOLAA 2026 — accepted, in press | [`v1` branch](https://github.com/luishresende/complitt/tree/v1) | [Drive folder](https://drive.google.com/drive/folders/1mMKY8ry4GjUa8ofzVkv5VJKde4sF3D_A?usp=drive_link) |
 
 > The original pipeline that accompanies the first paper is preserved in the [`v1` branch](https://github.com/luishresende/complitt/tree/v1).
 
