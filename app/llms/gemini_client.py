@@ -18,15 +18,12 @@ class GeminiClient(LLMClient):
         return self.client
 
 
-    def generate_content(self, contents: str, **kwargs):
-        try:
-            response = self.get_client().models.generate_content(
-                model=self.model_name,
-                contents=contents,
-            )
-            return response.text
-        except Exception as e:
-            logging.error(str(e))
+    def generate_content(self, contents: str, **kwargs) -> str:
+        response = self.get_client().models.generate_content(
+            model=self.model_name,
+            contents=contents,
+        )
+        return response.text
 
     @property
     def name(self) -> str:

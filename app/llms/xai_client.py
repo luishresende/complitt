@@ -20,14 +20,11 @@ class XAIClient(LLMClient):
     def get_client(self) -> Client:
         return self.client
 
-    def generate_content(self, contents: str, **kwargs):
-        try:
-            chat = self.get_client().chat.create(model=self.model_name)
-            chat.append(user(contents))
-            response = chat.sample()
-            return response.content
-        except Exception as e:
-            logging.error(str(e))
+    def generate_content(self, contents: str, **kwargs) -> str:
+        chat = self.get_client().chat.create(model=self.model_name)
+        chat.append(user(contents))
+        response = chat.sample()
+        return response.content
 
     @property
     def name(self) -> str:
