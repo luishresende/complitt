@@ -267,6 +267,23 @@ pytest
 
 ---
 
+## 📊 Evaluation & Replication
+
+The [`evaluation/`](evaluation/) folder is a self-contained replication package
+that reproduces the evaluation of the generated summaries. Working directly from
+the results dataset, it scores every model with three metrics:
+
+* **BERTScore** (XLM-RoBERTa) and **ROUGE-1/2/L** — against the human reference
+  summary (`evaluation/bertscore_rouge.py`).
+* **BooookScore** — LLM-based coherence, no reference needed
+  (`evaluation/booookscore_eval.py`), using a
+  [modified fork of BooookScore](https://github.com/luishresende/BooookScore).
+
+See [`evaluation/README.md`](evaluation/README.md) for the data download,
+setup, and usage instructions.
+
+---
+
 ## 📄 Citation
 
 This multi-task version extends the original CompLiTT pipeline:

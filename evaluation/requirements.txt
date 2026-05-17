@@ -1,0 +1,9 @@
+# Dependencies for the BERTScore + ROUGE evaluation (bertscore_rouge.py).
+# Install with:  pip install -r evaluation/requirements.txt
+bert-score
+rouge-score
+
+# BooookScore (booookscore_eval.py) is NOT covered here: clone the fork and
+# install its own requirements instead --
+#   git clone https://github.com/luishresende/BooookScore.git evaluation/BooookScore
+#   pip install -r evaluation/BooookScore/requirements.txt
